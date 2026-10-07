@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Undangan Digital Editor V2</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#eee;color:#222}
+.top{position:sticky;top:0;z-index:50;background:#fff;border-bottom:1px solid #ddd;padding:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+button{border:0;border-radius:8px;padding:9px 12px;background:#222;color:#fff}
+.light{background:#eee;color:#222}
+#app{display:flex;min-height:calc(100vh - 58px)}
+#editor{width:330px;background:#fff;border-right:1px solid #ddd;padding:12px;overflow:auto}
+#stageWrap{flex:1;display:flex;justify-content:center;align-items:flex-start;padding:20px;background:#e8e8e8;overflow:auto}
+#stage{position:relative;width:min(430px,92vw);height:760px;background:#fff;overflow:hidden;box-shadow:0 5px 25px #999;touch-action:none}
+.section{position:absolute;inset:0;display:none;background-size:cover;background-position:center}
+.section.active{display:block}
+.el{position:absolute;min-width:40px;min-height:30px;user-select:none;touch-action:none;border:1px dashed transparent}
+.el.selected{border:1px dashed #07f}.el .handle{display:none;position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;border:2px solid #07f;right:-10px;bottom:-10px;touch-action:none}
+.el.selected .handle{display:block}.el.locked{pointer-events:none}
+.textEl{padding:8px;white-space:pre-wrap}
+.panel{border:1px solid #ddd;border-radius:10px;padding:10px;margin-bottom:10px}
+.panel h3{font-size:14px;margin:0 0 8px}.row{display:flex;gap:6px;margin:6px 0}.row>*{flex:1}
+input,textarea,select{width:100%;border:1px solid #ccc;border-radius:7px;padding:8px}
+.small{font-size:12px;color:#666}.layer{display:flex;align-items:center;gap:5px;border:1px solid #ddd;border-radius:7px;padding:7px;margin:4px 0}.layer span{flex:1;overflow:hidden;white-space:nowrap}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:10px 15px;border-radius:8px;display:none;z-index:100}
+@media(max-width:700px){#app{display:block}#editor{width:100%;border-right:0;border-bottom:1px solid #ddd}#stageWrap{padding:12px}}
+</style>
+</head>
+<body>
+<div class="top"><b>Undangan Editor V2</b><button onclick="save()">Simpan</button><button onclick="exportData()">Export</button><button class="light" onclick="resetAll()">Reset</button></div>
+<div id="app">
+<aside id="editor">
+<div class="panel"><h3>Halaman</h3><select id="page" onchange="setPage(this.value)"><option value="cover">Cover</option><option value="invite">Undangan</option></select></div>
+<div class="panel"><h3>Tambah Elemen</h3><div class="row"><button onclick="addText()">+ Teks</button><button onclick="document.getElementById('img').click()">+ Gambar</button></div><input id="img" type="file" accept="image/*" style="display:none" onchange="addImage(event)"><div class="small">PNG transparan cocok untuk ornamen.</div></div>
+<div class="panel"><h3>Elemen Terpilih</h3><div id="empty">Pilih elemen di halaman.</div>
+<div id="props" style="display:none"><textarea id="txt" rows="3" placeholder="Teks" oninput="updateText()"></textarea>
+<div class="row"><label>Ukuran<input id="size" type="number" min="6" max="150" oninput="updateProp()"></label><label>Opacity<input id="op" type="number" min="0" max="100" oninput="updateProp()"></label></div>
+<div class="row"><label>Rotasi<input id="rot" type="number" oninput="updateProp()"></label><label>Lebar<input id="wid" type="number" oninput="updateProp()"></label></div>
+<div class="row"><button onclick="duplicate()">Duplikat</button><button onclick="deleteEl()">Hapus</button></div>
+<div class="row"><button onclick="moveLayer(-1)">Ke bawah</button><button onclick="moveLayer(1)">Ke atas</button></div>
+<div class="row"><button onclick="toggleLock()" id="lockBtn">Kunci</button><button onclick="toggleVisible()" id="visBtn">Sembunyikan</button></div>
+</div></div>
+<div class="panel"><h3>Background</h3><input type="file" accept="image/*" onchange="setBackground(event)"></div>
+<div class="panel"><h3>Layers</h3><div id="layers"></div></div>
+</aside>
+<main id="stageWrap"><div id="stage">
+<div class="section active" id="cover">
+<div class="el textEl" data-id="cover-title" style="left:55px;top:250px;width:320px;font-size:32px;text-align:center;color:#fff;font-weight:bold">Nama Mempelai</div>
+<div class="el textEl" data-id="cover-sub" style="left:80px;top:320px;width:270px;font-size:17px;text-align:center;color:#fff">Undangan Pernikahan</div>
+</div>
+<div class="section" id="invite">
+<div class="el textEl" data-id="invite-title" style="left:45px;top:80px;width:340px;font-size:28px;text-align:center;font-weight:bold">Nama Mempelai</div>
+<div class="el textEl" data-id="invite-date" style="left:55px;top:160px;width:320px;font-size:18px;text-align:center">Minggu, 20 Desember 2026</div>
+</div></div></main>
+</div><div id="toast"></div>
+<script>
+const stage=document.getElementById('stage');let current='cover',selected=null;
+const $=id=>document.getElementById(id);
+function toast(t){$('toast').textContent=t;$('toast').style.display='block';setTimeout(()=>$('toast').style.display='none',1300)}
+function setPage(p){current=p;document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));$(p).classList.add('active');selected=null;refresh()}
+function elements(){return [...$(current).querySelectorAll('.el')]}
+function selectEl(e){if(e.classList.contains('locked'))return;selected=e;document.querySelectorAll('.el').forEach(x=>x.classList.remove('selected'));e.classList.add('selected');syncProps();refreshLayers()}
+function addText(){let e=document.createElement('div');e.className='el textEl';e.dataset.id='text-'+Date.now();e.textContent='Teks baru';e.style.cssText='left:100px;top:350px;width:220px;font-size:24px';$(current).appendChild(e);makeDraggable(e);selectEl(e)}
+function addImage(ev){let f=ev.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{let e=document.createElement('div');e.className='el';e.dataset.id='image-'+Date.now();e.style.cssText='left:90px;top:350px;width:220px;height:150px;background-size:contain;background-repeat:no-repeat;background-position:center';e.style.backgroundImage='url("'+r.result+'")';$(current).appendChild(e);makeDraggable(e);selectEl(e)};r.readAsDataURL(f);ev.target.value=''}
+function makeDraggable(e){e.addEventListener('pointerdown',startDrag);let h=document.createElement('div');h.className='handle';e.appendChild(h);h.addEventListener('pointerdown',startResize)}
+function startDrag(ev){if(ev.target.classList.contains('handle')||this.classList.contains('locked'))return;selectEl(this);this.setPointerCapture(ev.pointerId);let sx=ev.clientX,sy=ev.clientY,l=this.offsetLeft,t=this.offsetTop;const move=x=>{this.style.left=(l+x.clientX-sx)+'px';this.style.top=(t+x.clientY-sy)+'px'};const end=()=>{this.removeEventListener('pointermove',move);this.removeEventListener('pointerup',end);save(false)};this.addEventListener('pointermove',move);this.addEventListener('pointerup',end)}
+function startResize(ev){ev.stopPropagation();let e=ev.currentTarget.parentElement;if(e.classList.contains('locked'))return;e.setPointerCapture(ev.pointerId);let sx=ev.clientX,sy=ev.clientY,w=e.offsetWidth,h=e.offsetHeight;const move=x=>{e.style.width=Math.max(40,w+x.clientX-sx)+'px';e.style.height=Math.max(30,h+x.clientY-sy)+'px'};const end=()=>{e.removeEventListener('pointermove',move);e.removeEventListener('pointerup',end);syncProps();save(false)};e.addEventListener('pointermove',move);e.addEventListener('pointerup',end)}
+function syncProps(){if(!selected){$('empty').style.display='block';$('props').style.display='none';return}$('empty').style.display='none';$('props').style.display='block';$('txt').value=selected.classList.contains('textEl')?selected.textContent:'';$('size').value=parseFloat(selected.style.fontSize)||24;$('op').value=Math.round((parseFloat(selected.style.opacity)||1)*100);$('rot').value=parseFloat(selected.dataset.rot)||0;$('wid').value=selected.offsetWidth;$('lockBtn').textContent=selected.classList.contains('locked')?'Buka Kunci':'Kunci';$('visBtn').textContent=selected.style.display==='none'?'Tampilkan':'Sembunyikan'}
+function updateText(){if(selected&&selected.classList.contains('textEl'))selected.textContent=$('txt').value;save(false)}
+function updateProp(){if(!selected)return;selected.style.fontSize=$('size').value+'px';selected.style.opacity=$('op').value/100;selected.style.width=$('wid').value+'px';selected.dataset.rot=$('rot').value;selected.style.transform='rotate('+$('rot').value+'deg)';save(false)}
+function deleteEl(){if(selected){selected.remove();selected=null;refresh()}}
+function duplicate(){if(!selected)return;let e=selected.cloneNode(true);e.dataset.id='copy-'+Date.now();e.style.left=(selected.offsetLeft+20)+'px';e.style.top=(selected.offsetTop+20)+'px';e.classList.remove('selected');$(current).appendChild(e);makeDraggable(e);selectEl(e)}
+function moveLayer(dir){if(!selected)return;let all=elements(),i=all.indexOf(selected),ni=i+dir;if(ni<0||ni>=all.length)return;let target=all[ni];if(dir>0)target.after(selected);else target.before(selected);refreshLayers()}
+function toggleLock(){if(!selected)return;selected.classList.toggle('locked');syncProps()}
+function toggleVisible(){if(!selected)return;selected.style.display=selected.style.display==='none'?'block':'none';syncProps();refreshLayers()}
+function refreshLayers(){let box=$('layers');box.innerHTML='';elements().slice().reverse().forEach(e=>{let d=document.createElement('div');d.className='layer';let s=document.createElement('span');s.textContent=e.dataset.id+(e.classList.contains('locked')?' 🔒':'');let b=document.createElement('button');b.textContent=e.style.display==='none'?'👁':'◉';b.onclick=ev=>{ev.stopPropagation();selected=e;toggleVisible()};d.append(s,b);d.onclick=()=>selectEl(e);box.appendChild(d)})}
+function refresh(){elements().forEach(e=>{if(!e.querySelector('.handle'))makeDraggable(e)});syncProps();refreshLayers()}
+function setBackground(ev){let f=ev.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{$(current).style.backgroundImage='url("'+r.result+'")';save()};r.readAsDataURL(f)}
+function save(show=true){let data={};document.querySelectorAll('.section').forEach(sec=>data[sec.id]={bg:sec.style.backgroundImage,html:sec.innerHTML});localStorage.setItem('inviteEditorV2',JSON.stringify(data));if(show)toast('Tersimpan di browser')}
+function load(){let raw=localStorage.getItem('inviteEditorV2');if(!raw){refresh();return}try{let data=JSON.parse(raw);Object.keys(data).forEach(id=>{if($(id)){if(data[id].bg)$(id).style.backgroundImage=data[id].bg;$(id).innerHTML=data[id].html}})}catch(e){}refresh()}
+function exportData(){let raw=localStorage.getItem('inviteEditorV2')||'{}';let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([raw],{type:'application/json'}));a.download='undangan-data.json';a.click();toast('Data diekspor')}
+function resetAll(){if(confirm('Hapus semua perubahan?')){localStorage.removeItem('inviteEditorV2');location.reload()}}
+load();
+</script>
+</body></html>
